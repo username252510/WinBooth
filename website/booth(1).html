@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Booth</title>
+<style>
+:root{--b1:#ececf0;--b2:#e2e2e7;--fg:#1d1d1f;--bd:#c4c4ca;--bt:#fff;--on:#d3d3d9;--dot:#8a8a90}
+@media (prefers-color-scheme:dark){:root{--b1:#3b3b3d;--b2:#1d1d1f;--fg:#fff;--bd:#555;--bt:#2b2b2d;--on:#505054;--dot:#666}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:#fff;font:13px "Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
+#c{position:fixed;inset:0;width:100%;height:100%}
+#v{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+#st{flex:1;min-height:0;position:relative}
+#grid{position:absolute;inset:0;display:none;grid:repeat(3,1fr)/repeat(3,1fr);gap:3px;padding:3px}
+#grid.on{display:grid}
+.t{position:relative;min-height:0;padding:0;border:0;background:none;color:#fff;cursor:pointer}
+.t:hover{outline:2px solid #6ea8ff;outline-offset:-2px}
+.t span{position:absolute;left:0;right:0;bottom:7%;text-align:center;font-size:clamp(14px,2.6vw,28px);font-weight:300;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+#cd{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32vh;font-weight:200;color:rgba(255,255,255,.88);text-shadow:0 0 40px #000;pointer-events:none;opacity:0}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:30px;text-align:center;color:#aaa;pointer-events:none}
+#bar{height:72px;display:flex;align-items:center;padding:0 20px;background:linear-gradient(var(--b1),var(--b2));border-top:1px solid var(--bd);color:var(--fg)}
+#bar>.l,#bar>.r{flex:1;display:flex;gap:6px}
+#bar>.r{justify-content:flex-end}
+.m,#fx{height:28px;border:1px solid var(--bd);border-radius:5px;background:var(--bt);color:var(--fg);cursor:pointer}
+.m{width:36px;font-size:15px}
+.m.on{background:var(--on)}
+#fx{padding:0 16px;font-size:13px}
+#rec{width:68px;height:42px;border:1px solid #6d0b0b;border-radius:21px;background:linear-gradient(#ff6a5e,#d2231b);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+#rec:active{filter:brightness(.8)}
+#pager{display:none;align-items:center;gap:26px}
+#pager button{display:flex;padding:4px;border:0;background:none;color:var(--fg);cursor:pointer}
+#pager button:disabled{opacity:.3;cursor:default}
+#pager i{width:14px;height:14px;border-radius:50%;background:var(--dot);cursor:pointer}
+#pager i.on{background:#0a74ff}
+#bar.g #pager{display:flex}
+#bar.g #rec,#bar.g .m{display:none}
+#strip{height:66px;display:flex;gap:6px;align-items:center;padding:6px;overflow-x:auto;background:var(--b2);border-top:1px solid var(--bd)}
+#strip img{height:100%;border:1px solid var(--bd);border-radius:2px;cursor:pointer}
+#strip img:first-child{margin-left:auto}
+#strip img:last-child{margin-right:auto}
+#fl{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none}
+button:focus-visible{outline:2px solid #6ea8ff;outline-offset:2px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas><video id="v" playsinline muted></video>
+<div id="app">
+ <div id="st"><div id="msg">Starting camera…</div><div id="cd"></div><div id="grid"></div></div>
+ <div id="bar">
+  <div class="l"><button class="m on" id="b4" title="Take four quick pictures">▦</button><button class="m" id="b1" title="Take a single picture">▣</button></div>
+  <button id="rec" title="Take photo (Space)"><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" fill-rule="evenodd"><path d="M9 4 7.5 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4zm3 4.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z"/></svg></button>
+  <div id="pager">
+   <button id="pl" aria-label="Previous page"><svg width="26" height="28" viewBox="0 0 24 26" fill="currentColor"><path d="M22 1v24L2 13z"/></svg></button><i></i><i></i><i></i>
+   <button id="pr" aria-label="Next page"><svg width="26" height="28" viewBox="0 0 24 26" fill="currentColor"><path d="M2 1v24l20-12z"/></svg></button>
+  </div>
+  <div class="r"><button id="fx">Effects</button></div>
+ </div>
+ <div id="strip"></div>
+</div>
+<div id="fl"></div>
+<script>
+let bad=0,cur=4,page=0,gridOn=false,busy=false,four=true,AC,FL,fst=0,fv=0,lt=-1;
+const $=i=>document.getElementById(i),v=$('v'),c=$('c'),st=$('st'),grid=$('grid'),strip=$('strip'),cd=$('cd'),msg=$('msg'),bar=$('bar'),pager=$('pager'),err=t=>{msg.textContent=t},FPt=new Float32Array(16);
+
+const VS='attribute vec2 a;varying vec2 u;void main(){u=a*.5+.5;gl_Position=vec4(a,0.,1.);}';
+const HDR=`
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform sampler2D t;uniform float e,A,T,fv;uniform vec2 px;uniform vec2 F[8];varying vec2 u;
+vec3 S(vec2 q){return texture2D(t,vec2(1.-q.x,1.-q.y)).rgb;}
+float L(vec3 c){return dot(c,vec3(.299,.587,.114));}
+`;
+// effects 0-17: filters and distortions
+const FS=HDR+`
+float ed(vec2 q){vec2 d=px*2.;
+ float a=L(S(q+vec2(-d.x,-d.y))),b=L(S(q+vec2(0.,-d.y))),c=L(S(q+vec2(d.x,-d.y)));
+ float f=L(S(q+vec2(-d.x,0.))),g=L(S(q+vec2(d.x,0.)));
+ float h=L(S(q+vec2(-d.x,d.y))),i=L(S(q+vec2(0.,d.y))),j=L(S(q+vec2(d.x,d.y)));
+ return length(vec2(c+2.*g+j-a-2.*f-h,h+2.*i+j-a-2.*b-c));}
+vec3 heat(float l){return clamp(vec3(1.5-abs(4.*l-3.),1.5-abs(4.*l-2.),1.5-abs(4.*l-1.)),0.,1.);}
+void main(){
+ vec2 q=u,p=(q-.5)*vec2(A,1.);float r=length(p);vec3 c;
+ if(e>8.5){
+  if(e<9.5){if(r<.55)p*=pow(r/.55,.55);}
+  else if(e<10.5){if(r<.6)p*=1.+.9*pow(1.-r/.6,2.);}
+  else if(e<11.5){if(r<.6){float a=2.5*pow(1.-r/.6,2.),s=sin(a),k=cos(a);p=vec2(k*p.x-s*p.y,s*p.x+k*p.y);}}
+  else if(e<12.5){p.x*=1.+1.4*exp(-p.x*p.x*8.);}
+  else if(e<13.5){q.x=q.x<.5?q.x:1.-q.x;p=(q-.5)*vec2(A,1.);}
+  else if(e<14.5){float a=abs(atan(p.y,p.x)/3.1416),z=.3/(r+.03)+T*.4;
+   c=S(vec2(a,fract(z)))*smoothstep(0.,.25,r)+vec3(.9,.95,1.)*.35*exp(-r*8.);
+   gl_FragColor=vec4(clamp(c,0.,1.),1.);return;}
+  else if(e<15.5){p*=.75+1.1*r*r;}
+  else if(e<16.5){p.x*=mix(.5,1.,smoothstep(0.,.7,r));}
+  else{float a=atan(p.y,p.x),s=1.0472;a=abs(mod(a,s)-s*.5)+1.5708;p=vec2(cos(a),sin(a))*r*.9;}
+  c=S(p/vec2(A,1.)+.5);
+ }else if(e<.5){c=S(q);}
+ else if(e<1.5){float l=L(S(q));c=vec3(l*1.1+.05,l*.9+.03,l*.7);}
+ else if(e<2.5){float l=(L(S(q))-.5)*1.25+.5;c=vec3(l);}
+ else if(e<3.5){vec3 b=vec3(0.);for(int i=0;i<8;i++){float a=float(i)*.7854;b+=S(q+vec2(cos(a),sin(a))*.018);}b/=8.;c=S(q)*.9+b*.7+b*b*.9;}
+ else if(e<4.5){vec3 o=S(q);float l=L(o),hh=step(.5,fract((gl_FragCoord.x-gl_FragCoord.y)*.12)),k=clamp((.8-l)*2.,0.,1.)*mix(.5,1.,hh);
+  c=mix(vec3(1.),o*.9,k)*(1.-clamp(ed(q)*2.5,0.,1.)*.6);}
+ else if(e<5.5){c=heat(L(S(q)));}
+ else if(e<6.5){float l=pow(1.-L(S(q)),1.4);c=vec3(l*.6,l*.92,l*.95)+vec3(0.,.02,.04);}
+ else if(e<7.5){vec3 o=(S(q)-.5)*1.3+.5;o=mix(vec3(L(o)),o,1.5);vec2 d=q-.5;
+  c=o*vec3(1.1,1.08,.8)*(1.-dot(d,d)*1.6)+vec3(.3,.34,0.)*smoothstep(.55,1.,q.y)*(1.-q.x)*.6;}
+ else{vec3 o=S(q);vec3 z=floor(o*4.)/3.;float h=step(length(fract(gl_FragCoord.xy*.17)-.5),.5*(1.-L(o)));
+  c=mix(z*1.05,vec3(0.),smoothstep(.25,.55,ed(q)));c*=1.-.3*h;}
+ gl_FragColor=vec4(clamp(c,0.,1.),1.);}`;
+// effects 18-25: face tracking. F = eyeA, eyeB, nose, mouth, chin, forehead, cheekA, cheekB (in 0..1 view space)
+const FS2=HDR+`
+float dot2(vec2 v){return dot(v,v);}
+float dH(vec2 p){p.x=abs(p.x);if(p.y+p.x>1.)return sqrt(dot2(p-vec2(.25,.75)))-.35355;return sqrt(min(dot2(p-vec2(0.,1.)),dot2(p-.5*max(p.x+p.y,0.))))*sign(p.x-p.y);}
+vec2 P(vec2 q){return(q-.5)*vec2(A,1.);}
+vec2 bu(vec2 p,vec2 c,float R,float k){vec2 d=p-c;float r=length(d);if(r<R)p=c+d*(1.-k*pow(1.-r/R,2.));return p;}
+void main(){
+ vec2 q=u,p=P(q);
+ if(fv<.5){gl_FragColor=vec4(S(q),1.);return;}
+ vec2 ea=P(F[0]),eb=P(F[1]),nz=P(F[2]),mo=P(F[3]),ch=P(F[4]),tp=P(F[5]),ka=P(F[6]),kb=P(F[7]),o=p;
+ float s=length(ea-eb);
+ if(e<18.5){p=bu(p,ea,s*.8,.6);p=bu(p,eb,s*.8,.6);p=bu(p,mo,s*1.2,-.9);p=bu(p,ch,s*1.3,-.5);}
+ else if(e<19.5){vec2 d=p-nz;float r=length(d),R=s*1.2;if(r<R){float a=3.*pow(1.-r/R,2.),k=cos(a),n=sin(a);p=nz+vec2(k*d.x-n*d.y,n*d.x+k*d.y);}}
+ else if(e<20.5){p=bu(p,ka,s*.9,.55);p=bu(p,kb,s*.9,.55);}
+ else if(e<22.5){}
+ else if(e<23.5){p=bu(p,(tp+(ea+eb)*.5)*.5,s*1.5,.5);vec2 d=(p-ch)/vec2(s*1.2,s*.9);p.x=ch.x+(p.x-ch.x)*(1.-.25*exp(-dot(d,d)));}
+ else if(e<24.5){p=bu(p,ea,s*.75,.85);p=bu(p,eb,s*.75,.85);}
+ else{p=bu(p,ea,s*.6,.6);p=bu(p,eb,s*.6,.6);vec2 d=(p-mo)/vec2(s*1.2,s*.5);p.x=mo.x+(p.x-mo.x)*(1.-.5*exp(-dot(d,d)));}
+ vec3 c=S(p/vec2(A,1.)+.5);
+ if(e>20.5&&e<21.5){
+  for(int i=0;i<6;i++){float f=float(i),ph=fract(T*.25+f*.1667),z=s*(.4+.12*sin(f*3.1));
+   vec2 cp=tp+vec2(sin(f*7.3)*s*1.4+sin(T*2.+f)*s*.1,ph*s*1.8-.1*s);
+   float h=dH((o-cp)/z+vec2(0.,.45))*z;
+   c=mix(c,vec3(1.,.35,.58),(1.-smoothstep(-.004,.004,h))*(1.-ph*.6));}
+ }
+ if(e>21.5&&e<22.5){
+  for(int i=0;i<3;i++){float f=float(i),a=T*2.4+f*2.094,r=s*.16,w=.5+.5*sin(T*14.+f*2.);
+   vec2 d=o-(tp+vec2(cos(a)*s*1.25,sin(a)*s*.3+s*.2));
+   float m=min(length(d/vec2(1.,.6))-r,min(length((d-vec2(-.9*r,.55*r*w))/vec2(.6,1.2))-r*.75,length((d-vec2(.9*r,.55*r*w))/vec2(.6,1.2))-r*.75));
+   c=mix(c,vec3(.25,.6,.95),1.-smoothstep(-.004,.004,m));}
+ }
+ gl_FragColor=vec4(clamp(c,0.,1.),1.);}`;
+
+// [label, shader id] - three pages of nine, like the original
+const FX=[['Space Alien',18],['Nose Twirl',19],['Chipmunk',20],['Lovestruck',21],['Normal',0],['Dizzy',22],['Blockhead',23],['Bug Out',24],['Frog',25],
+['Sepia',1],['Black And White',2],['Plastic Camera',7],['Comic Book',8],['Normal',0],['Color Pencil',4],['Glow',3],['Thermal Camera',5],['X-Ray',6],
+['Bulge',9],['Dent',10],['Twirl',11],['Squeeze',12],['Mirror',13],['Light Tunnel',14],['Fish Eye',15],['Stretch',16],['Kaleidoscope',17]];
+
+function mkGL(cv){
+ const g=cv.getContext('webgl',{preserveDrawingBuffer:true,alpha:false}),
+ sh=(k,s)=>{const o=g.createShader(k);g.shaderSource(o,s);g.compileShader(o);if(!g.getShaderParameter(o,g.COMPILE_STATUS)){bad=1;console.error(g.getShaderInfoLog(o));err('Shader error: '+g.getShaderInfoLog(o).slice(0,300))}return o},
+ pr=[FS,FS2].map(s=>{const p=g.createProgram();g.attachShader(p,sh(g.VERTEX_SHADER,VS));g.attachShader(p,sh(g.FRAGMENT_SHADER,s));g.bindAttribLocation(p,0,'a');g.linkProgram(p);return{p,ok:g.getProgramParameter(p,g.LINK_STATUS),l:{}}});
+ let PX=[0,0],FP=new Float32Array(16),FV=0;
+ g.bindBuffer(g.ARRAY_BUFFER,g.createBuffer());
+ g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),g.STATIC_DRAW);
+ g.enableVertexAttribArray(0);g.vertexAttribPointer(0,2,g.FLOAT,false,0,0);
+ g.bindTexture(g.TEXTURE_2D,g.createTexture());
+ for(const k of[g.TEXTURE_WRAP_S,g.TEXTURE_WRAP_T])g.texParameteri(g.TEXTURE_2D,k,g.CLAMP_TO_EDGE);
+ for(const k of[g.TEXTURE_MIN_FILTER,g.TEXTURE_MAG_FILTER])g.texParameteri(g.TEXTURE_2D,k,g.LINEAR);
+ return{cv,
+  px:(x,y)=>{PX=[x,y]},
+  face:(a,f)=>{FP=a;FV=f},
+  up:s=>g.texImage2D(g.TEXTURE_2D,0,g.RGB,g.RGB,g.UNSIGNED_BYTE,s),
+  clear(k){g.clearColor(k,k,k,1);g.clear(g.COLOR_BUFFER_BIT)},
+  draw(f,x,y,w,h,a,t){
+   let P=pr[f>17.5?1:0];if(!P.ok){P=pr[0];f=0}if(!P.ok)return;
+   const U=n=>P.l[n]??=g.getUniformLocation(P.p,n);
+   g.useProgram(P.p);g.viewport(x|0,y|0,w|0,h|0);
+   g.uniform1f(U('e'),f);g.uniform1f(U('A'),a);g.uniform1f(U('T'),t);g.uniform2f(U('px'),PX[0],PX[1]);
+   g.uniform1f(U('fv'),FV);g.uniform2fv(U('F'),FP);g.drawArrays(g.TRIANGLE_STRIP,0,4)}};
+}
+const D=mkGL(c),O=mkGL(document.createElement('canvas'));
+
+// face tracking (MediaPipe Face Landmarker, loaded on demand from a CDN)
+async function loadFace(){
+ fst=1;err('Loading face tracking…');
+ try{
+  const B='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14',M=await import(B+'/vision_bundle.mjs'),R=await M.FilesetResolver.forVisionTasks(B+'/wasm');
+  for(const d of['GPU','CPU']){try{FL=await M.FaceLandmarker.createFromOptions(R,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:d},runningMode:'VIDEO',numFaces:1});break}catch(e){}}
+  if(!FL)throw 0;bad||err('');
+ }catch(e){fst=3;err('Face effects need an internet connection to load face tracking. They show the normal picture until it loads; reload the page to retry.')}
+}
+
+const tiles=FX.map(([n],i)=>{const b=document.createElement('button'),s=document.createElement('span');b.className='t';s.textContent=n;b.append(s);b.onclick=()=>{cur=i;toggle(false)};return b});
+function show(){grid.replaceChildren(...tiles.slice(page*9,page*9+9));bar.classList.toggle('g',gridOn);pager.querySelectorAll('i').forEach((d,i)=>d.classList.toggle('on',i==page));$('pl').disabled=page<1;$('pr').disabled=page>1}
+function toggle(on){gridOn=on;grid.classList.toggle('on',on);if(on)page=cur/9|0;show()}
+
+function fit(b){const r=v.videoWidth/v.videoHeight;let w=b.width,h=w/r;if(h>b.height){h=b.height;w=h*r}return[b.left+(b.width-w)/2,b.top+(b.height-h)/2,w,h]}
+function frame(t){
+ requestAnimationFrame(frame);
+ if(v.readyState<2||!v.videoWidth)return;
+ const d=devicePixelRatio,W=Math.round(innerWidth*d),H=Math.round(innerHeight*d),need=gridOn?page==0:FX[cur][1]>17;
+ if(c.width!=W||c.height!=H){c.width=W;c.height=H}
+ if(need&&!fst)loadFace();
+ if(need&&FL&&v.currentTime!=lt){
+  lt=v.currentTime;
+  try{
+   const L=FL.detectForVideo(v,performance.now()).faceLandmarks[0];
+   if(L){
+    const Q=i=>[1-L[i].x,1-L[i].y],M=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2],
+     pts=[M(Q(33),Q(133)),M(Q(263),Q(362)),Q(1),M(Q(13),Q(14)),Q(152),Q(10),Q(205),Q(425)];
+    pts.forEach((p,i)=>{for(let j=0;j<2;j++)FPt[2*i+j]=fv?FPt[2*i+j]+(p[j]-FPt[2*i+j])*.6:p[j]});fv=1;
+   }else fv=0;
+  }catch(e){}
+ }
+ D.face(FPt,fv);D.up(v);D.clear(gridOn?.18:0);
+ const dr=(el,i)=>{const[x,y,w,h]=fit(el.getBoundingClientRect());D.draw(FX[i][1],x*d,H-(y+h)*d,w*d,h*d,w/h,t/1e3)};
+ if(gridOn)[...grid.children].forEach((el,k)=>dr(el,page*9+k));else dr(st,cur);
+}
+
+function snap(){
+ const w=v.videoWidth,h=v.videoHeight,k=O.cv;k.width=w;k.height=h;
+ O.up(v);O.face(FPt,fv);O.draw(FX[cur][1],0,0,w,h,w/h,performance.now()/1e3);
+ const o=document.createElement('canvas');o.width=w;o.height=h;o.getContext('2d').drawImage(k,0,0);return o;
+}
+function snd(f,d,noise){
+ AC=AC||new AudioContext();const n=AC.sampleRate*d|0,b=AC.createBuffer(1,n,AC.sampleRate),a=b.getChannelData(0);
+ for(let i=0;i<n;i++)a[i]=(noise?Math.random()*2-1:Math.sin(i/AC.sampleRate*f*6.283))*(1-i/n);
+ const s=AC.createBufferSource(),g=AC.createGain();g.gain.value=.25;s.buffer=b;s.connect(g);g.connect(AC.destination);s.start();
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function flash(){const f=$('fl');f.style.transition='none';f.style.opacity=1;setTimeout(()=>{f.style.transition='opacity .6s';f.style.opacity=0},40)}
+function num(i){cd.textContent=i;cd.style.transition='none';cd.style.opacity=1;setTimeout(()=>{cd.style.transition='opacity .9s';cd.style.opacity=0},30)}
+function add(o){
+ const m=new Image();m.src=o.toDataURL('image/jpeg',.93);m.title='Click to save';
+ m.onclick=()=>{const a=document.createElement('a');a.href=m.src;a.download='Photo '+new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')+'.jpg';a.click()};
+ strip.prepend(m);
+}
+async function shoot(){
+ if(busy||!v.videoWidth)return;busy=true;toggle(false);
+ for(let i=3;i;i--){num(i);snd(880,.12);await wait(1000)}
+ const n=four?4:1,s=[];
+ for(let i=0;i<n;i++){snd(0,.15,true);flash();s.push(snap());if(i<n-1)await wait(1000)}
+ let o=s[0];
+ if(n>1){o=document.createElement('canvas');o.width=s[0].width;o.height=s[0].height;const x=o.getContext('2d'),w=o.width/2,h=o.height/2;s.forEach((k,i)=>x.drawImage(k,i%2*w,(i>>1)*h,w,h))}
+ add(o);busy=false;
+}
+
+$('rec').onclick=shoot;
+$('fx').onclick=()=>toggle(!gridOn);
+$('pl').onclick=()=>{page--;show()};
+$('pr').onclick=()=>{page++;show()};
+pager.querySelectorAll('i').forEach((d,i)=>d.onclick=()=>{page=i;show()});
+[$('b4'),$('b1')].forEach((b,i)=>b.onclick=()=>{four=!i;$('b4').classList.toggle('on',!i);$('b1').classList.toggle('on',!!i)});
+onkeydown=e=>{
+ if((e.key==' '||e.key=='Enter')&&!gridOn){e.preventDefault();shoot()}
+ else if(e.key=='Escape')toggle(false);
+ else if(gridOn&&e.key=='ArrowRight'&&page<2){page++;show()}
+ else if(gridOn&&e.key=='ArrowLeft'&&page>0){page--;show()}
+};
+v.onloadedmetadata=()=>{const x=1/v.videoWidth,y=1/v.videoHeight;D.px(x,y);O.px(x,y)};
+(navigator.mediaDevices?navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false}):Promise.reject())
+ .then(s=>{v.srcObject=s;return v.play()}).then(()=>bad||err(''))
+ .catch(()=>err('Could not open the camera. Allow camera access for this page and close other apps that use the webcam.'));
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
